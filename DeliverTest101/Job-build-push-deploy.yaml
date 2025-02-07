@@ -1,0 +1,79 @@
+pipeline {
+    agent any
+    
+    environment {
+        AWS_PROFILE_NAME = credentials('AWS_PROFILE_NAME')
+        AWS_ROLE_ARN = credentials('AWS_ROLE_ARN')
+        AWS_REGION = 'us-east-1' // Update this to your region
+        DEV_AWS_ECR_URL = 'your-ecr-url' // Update this
+        DEV_DOCKER_IMAGE_NAME = 'your-image-name' // Update this
+        AWS_EKS_CLUSTER_NAME = 'your-cluster-name' // Update this
+        DEV_AWS_EKS_DEPLOYMENT_NAMESPACE = 'your-namespace' // Update this
+        DEV_AWS_EKS_DEPLOYMENT_NAME = 'your-deployment' // Update this
+        DEV_AWS_EKS_CONTAINER_NAME = 'your-container' // Update this
+    }
+    
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+        
+        stage('Run Unit Tests') {
+            agent {
+                docker { image 'node:22.10' }
+            }
+            steps {
+                sh 'npm install'
+                sh 'npm run test:cov'
+                junit 'test-results/jest/*.xml'
+                archiveArtifacts artifacts: 'coverage/**', fingerprint: true
+            }
+        }
+        
+        stage('Build and Push Docker Image') {
+            agent {
+                docker { image 'amazon/aws-cli' }
+            }
+            steps {
+                script {
+                    sh """
+                        aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${DEV_AWS_ECR_URL}
+                        export TAG="0.0.${BUILD_NUMBER}"
+                        docker build --platform linux/amd64 -t ${DEV_DOCKER_IMAGE_NAME}:${TAG} .
+                        docker tag ${DEV_DOCKER_IMAGE_NAME}:${TAG} ${DEV_AWS_ECR_URL}/${DEV_DOCKER_IMAGE_NAME}:${TAG}
+                        docker push ${DEV_AWS_ECR_URL}/${DEV_DOCKER_IMAGE_NAME}:${TAG}
+                        echo $TAG > image-tag.txt
+                    """
+                    stash includes: 'image-tag.txt', name: 'image-tag'
+                }
+            }
+        }
+        
+        stage('Deploy to Development') {
+            agent {
+                docker { image 'amazon/aws-cli' }
+            }
+            steps {
+                script {
+                    unstash 'image-tag'
+                    def tag = readFile('image-tag.txt').trim()
+                    
+                    sh """
+                        aws eks update-kubeconfig --region ${AWS_REGION} --name ${AWS_EKS_CLUSTER_NAME}
+                        kubectl config set-context --current --namespace ${DEV_AWS_EKS_DEPLOYMENT_NAMESPACE}
+                        kubectl set image deployment ${DEV_AWS_EKS_DEPLOYMENT_NAME} ${DEV_AWS_EKS_CONTAINER_NAME}=${DEV_AWS_ECR_URL}/${DEV_DOCKER_IMAGE_NAME}:${tag}
+                        kubectl rollout status deployment/${DEV_AWS_EKS_DEPLOYMENT_NAME} -n ${DEV_AWS_EKS_DEPLOYMENT_NAMESPACE}
+                    """
+                }
+            }
+        }
+    }
+    
+    post {
+        always {
+            cleanWs()
+        }
+    }
+}

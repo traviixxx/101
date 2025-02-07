@@ -1,0 +1,33 @@
+{
+    "info": {
+        "name": "Weather API",
+        "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+    },
+    "item": [
+        {
+            "name": "Get Weather",
+            "request": {
+                "method": "GET",
+                "header": [
+                    {
+                        "key": "Authorization",
+                        "value": "1234",
+                        "type": "text"
+                    }
+                ],
+                "url": {
+                    "raw": "https://mrmd98a5ib.execute-api.us-east-1.amazonaws.com/prod/toktok/weather",
+                    "protocol": "https",
+                    "host": [
+                        "mrmd98a5ib.execute-api.us-east-1.amazonaws.com"
+                    ],
+                    "path": [
+                        "prod",
+                        "toktok",
+                        "weather"
+                    ]
+                }
+            }
+        }
+    ]
+}
